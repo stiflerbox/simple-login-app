@@ -81,6 +81,7 @@ openssl rsa -in dkim.key -pubout -out dkim.pub.key
 You will need the files `dkim.key` and `dkim.pub.key` for the next steps.
 
 For email gurus, we have chosen 1024 key length instead of 2048 for DNS simplicity as some registrars don't play well with long TXT record.
+Cloudflare supports 2048 key length.
 
 ### DNS
 
@@ -98,7 +99,7 @@ dig @1.1.1.1 mydomain.com mx
 
 should return:
 
-```
+```text
 mydomain.com.	3600	IN	MX	10 app.mydomain.com.
 ```
 
@@ -113,10 +114,45 @@ dig @1.1.1.1 app.mydomain.com a
 
 should return your server IP.
 
+#### AAAA record
+An **AAAA record** that points `app.mydomain.com.` to your server IP.
+If you are using CloudFlare, we recommend to disable the "Proxy" option.
+To verify, the following command
+
+```bash
+dig @1.1.1.1 app.mydomain.com aaaa
+```
+
+should return your server IP.
+
+#### PTR record (IPv4 reverse resolution)
+Suppose your server's IPv4 address is `8.8.4.4`.
+
+Create a **PTR record** that points `4.4.8.8.in-addr.arpa` to `mydomain.com`, where server's IPv4 address is written in the reverse order with `.in-addr.arpa` in the end.
+To verify, the following command
+
+```bash
+dig @1.1.1.1 -x 8.8.4.4
+```
+
+should return `mydomain.com`
+
+#### PTR record (IPv6 reverse resolution)
+Suppose your server's IPv6 address is `2001:db8::567:89ab`.
+
+Create a **PTR record** that points `b.a.9.8.7.6.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa` to `mydomain.com`, where server's IPv6 address is written in the reverse order with `.ip6.arpa` in the end.
+To verify, the following command
+
+```bash
+dig @1.1.1.1 -x 2001:db8::567:89ab
+```
+
+should return `mydomain.com`
+
 #### DKIM
 Set up DKIM by adding a TXT record for `dkim._domainkey.mydomain.com.` with the following value:
 
-```
+```text
 v=DKIM1; k=rsa; p=PUBLIC_KEY
 ```
 
@@ -126,7 +162,7 @@ with `PUBLIC_KEY` being your `dkim.pub.key` but
 
 For example, if your `dkim.pub.key` is
 
-```
+```text
 -----BEGIN PUBLIC KEY-----
 ab
 cd
@@ -160,8 +196,13 @@ From Wikipedia https://en.wikipedia.org/wiki/Sender_Policy_Framework
 Similar to DKIM, setting up SPF is highly recommended.
 Add a TXT record for `mydomain.com.` with the value:
 
-```
+```text
 v=spf1 mx ~all
+```
+
+or with server IP addresses included:
+```text
+v=spf1 ip4:SERVER_IPV4/32 ip6:SERVER_IPV4/128 mx ~all
 ```
 
 What it means is only your server can send email with `@mydomain.com` domain.
@@ -182,8 +223,13 @@ From Wikipedia https://en.wikipedia.org/wiki/DMARC
 Setting up DMARC is also recommended.
 Add a TXT record for `_dmarc.mydomain.com.` with the following value
 
-```
+```text
 v=DMARC1; p=quarantine; adkim=r; aspf=r
+```
+
+or adding your email to better comply with mail sending
+```text
+v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:support@mydomain.com;
 ```
 
 This is a `relaxed` DMARC policy. You can also use a more strict policy with `v=DMARC1; p=reject; adkim=s; aspf=s` value.
@@ -266,7 +312,7 @@ Choose "Internet Site" in Postfix installation window then keep using the propos
 
 Replace `/etc/postfix/main.cf` with the following content. Make sure to replace `mydomain.com` by your domain.
 
-```
+```text
 # POSTFIX config file, adapted for SimpleLogin
 smtpd_banner = $myhostname ESMTP $mail_name (Ubuntu)
 biff = no
@@ -343,7 +389,7 @@ openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /etc/ssl/private/ss
 Create the `/etc/postfix/pgsql-relay-domains.cf` file with the following content.
 Make sure that the database config is correctly set, replace `mydomain.com` with your domain, update 'myuser' and 'mypassword' with your postgres credentials.
 
-```
+```text
 # postgres config
 hosts = localhost
 user = myuser
@@ -357,7 +403,7 @@ query = SELECT domain FROM custom_domain WHERE domain='%s' AND verified=true
 Create the `/etc/postfix/pgsql-transport-maps.cf` file with the following content.
 Again, make sure that the database config is correctly set, replace `mydomain.com` with your domain, update 'myuser' and 'mypassword' with your postgres credentials.
 
-```
+```text
 # postgres config
 hosts = localhost
 user = myuser
@@ -389,6 +435,9 @@ Some have "dummy" values, fill them up if you want to enable these features (Pad
 ```.env
 # WebApp URL
 URL=http://app.mydomain.com
+
+# The landing page
+LANDING_PAGE_URL=http://mydomain.com
 
 # domain used to create alias
 EMAIL_DOMAIN=mydomain.com
@@ -533,7 +582,7 @@ If all the above steps are successful, open http://app.mydomain.com/ and create 
 By default, new accounts are not premium so don't have unlimited alias. To make your account premium,
 please go to the database, table "users" and set "lifetime" column to "1" or "TRUE":
 
-```
+```bash
 docker exec -it sl-db psql -U myuser simplelogin
 UPDATE users SET lifetime = TRUE;
 exit
@@ -541,7 +590,7 @@ exit
 
 Once you've created all your desired login accounts, add these lines to `/simplelogin.env` to disable further registrations:
 
-```
+```text
 DISABLE_REGISTRATION=1
 DISABLE_ONBOARDING=true
 ```
